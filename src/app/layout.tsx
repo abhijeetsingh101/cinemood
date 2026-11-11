@@ -7,6 +7,7 @@ import "./globals.css";
 import AuthSync from "@/components/AuthSync";
 import SceneRoot from "@/components/scene/SceneRoot";
 import Nav from "@/components/ui/Nav";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: { default: "CineMood — Discover movies that match your mood", template: "%s · CineMood" },
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <main id="main" className="relative z-10 mx-auto w-full max-w-6xl px-5 pt-24 pb-32 md:px-10 md:pt-32 md:pb-24">
           {children}
         </main>
+        <Analytics />
       </body>
     </html>
   );
