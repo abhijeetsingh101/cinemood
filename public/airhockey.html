@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Air Hockey Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Barlow:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+/* VOICE: loud, quick, arcade-floor fun with a friend on camera
+   IDEA: a coin-op air hockey table, your friend's face on the cabinet screen beside it
+   PICTURE: the table fills the height; video tiles next to it (above it on phones)
+   COLOUR and TYPE: cherry cabinet, white deck, red/blue lines; Russo One scoreboard + Barlow
+   LAYOUT: scoreboard bar, table + video column; stacks under 760px */
+:root{color-scheme:dark;--ink:#fff4f0;--mute:#f0c3c0;--red:#e0283f;--blue:#1f6fd1;--gold:#ffc83d}
+*{box-sizing:border-box;min-width:0}
+html,body{height:100%}
+body{margin:0;background:repeating-linear-gradient(45deg,#350910 0 14px,#3b0a12 14px 28px);color:var(--ink);font:16px/1.5 Barlow,system-ui,sans-serif;overflow:hidden;display:flex;flex-direction:column;user-select:none;-webkit-user-select:none}
+.bar{width:min(100%,900px);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px}
+.side{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;color:var(--mute)}
+.side.r{flex-direction:row-reverse}
+.digit{font:32px/1 "Russo One",sans-serif;min-width:58px;text-align:center;padding:8px 6px 6px;border-radius:10px;background:#160307;box-shadow:inset 0 0 0 2px #000}
+#sTop{color:#ff5a6e;text-shadow:0 0 12px #e0283f99}
+#sBot{color:#5aa2ff;text-shadow:0 0 12px #1f6fd199}
+.mid{display:flex;gap:6px;align-items:center}
+#tag{font-size:13px;color:var(--mute);text-align:center;max-width:16ch;line-height:1.2}
+.icon{width:44px;height:44px;border-radius:12px;border:0;background:#160307;color:var(--ink);font:700 14px Barlow,sans-serif;cursor:pointer;display:grid;place-items:center}
+.icon.off{background:#8a2d2d}
+button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.stage{flex:1;min-height:0;display:flex;justify-content:center;align-items:flex-start;gap:16px;padding:0 10px 12px}
+#wrap{position:relative;width:min(100%,calc((100dvh - 84px)*544/904));aspect-ratio:544/904;flex:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:none;filter:drop-shadow(0 18px 30px #0009)}
+.vids{display:flex;flex-direction:column;gap:10px;width:280px}
+.tile{position:relative;aspect-ratio:4/3;border-radius:14px;overflow:hidden;background:#160307;box-shadow:0 0 0 3px #6d1222,0 10px 24px #0008}
+.tile video{width:100%;height:100%;object-fit:cover;display:block}
+#local{transform:scaleX(-1)}
+.tile span{position:absolute;left:8px;bottom:6px;font-size:13px;font-weight:700;background:#000a;padding:0 8px;border-radius:6px}
+#vMsg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:12px;color:var(--mute);font-size:14px}
+.ov{position:absolute;inset:8% 6%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;background:#3b0a12f2;border-radius:24px;padding:22px;box-shadow:0 20px 50px #000a;overflow:auto}
+.ov h1,.ov h2{margin:0;font:clamp(30px,7vw,46px)/1.05 "Russo One",sans-serif}
+.ov h1 span{color:var(--gold)}
+.ov p{margin:0;color:var(--mute);max-width:32ch}
+.grp{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.b{font:700 17px Barlow,sans-serif;min-height:48px;padding:0 18px;border-radius:14px;border:0;cursor:pointer;background:#fff4f0;color:#3b0a12;box-shadow:0 4px 0 #c9a9a4}
+.b:active{transform:translateY(3px);box-shadow:0 1px 0 #c9a9a4}
+.b.go{background:var(--red);color:#fff;box-shadow:0 4px 0 #8f1222;font-size:19px}
+.b.sm{min-height:44px;font-size:15px}
+input{font:700 22px Barlow,sans-serif;letter-spacing:.15em;text-transform:uppercase;min-height:48px;width:9em;padding:0 12px;border-radius:12px;border:2px solid #8e1a2e;background:#160307;color:var(--ink);text-align:center}
+.code{font:44px/1 "Russo One",sans-serif;letter-spacing:.15em;color:var(--gold)}
+.small{font-size:13px;color:var(--mute)}
+.err{color:#ffb0a0;min-height:1.5em;font-size:15px}
+hr{width:70%;border:0;border-top:1px solid #ffffff22;margin:2px 0}
+.hidden{display:none!important}
+#flash{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;font:clamp(38px,10vw,66px)/1 "Russo One",sans-serif;opacity:0;transition:opacity .25s;text-shadow:0 4px 20px #000;text-align:center}
+#flash.show{opacity:1}
+@media(max-width:760px){
+  .stage{flex-direction:column;align-items:center;gap:8px}
+  .vids{flex-direction:row;width:min(100%,420px);justify-content:center}
+  .tile{height:96px;width:auto;flex:none}
+  #wrap{width:min(100%,calc((100dvh - 200px)*544/904))}
+}
+@media(prefers-reduced-motion:reduce){#flash{transition:none}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="side"><div class="digit" id="sTop">0</div><span id="nTop">Friend</span></div>
+  <div class="mid">
+    <button class="icon" id="micBtn" aria-label="Mute microphone">Mic</button>
+    <div id="tag"></div>
+    <button class="icon" id="camBtn" aria-label="Turn camera off">Cam</button>
+    <button class="icon" id="sndBtn" aria-label="Game sounds on or off">♪</button>
+  </div>
+  <div class="side r"><div class="digit" id="sBot">0</div><span>You</span></div>
+</div>
+<div class="stage">
+  <div id="wrap">
+    <canvas id="c" aria-label="Air hockey table"></canvas>
+    <div id="flash"></div>
+
+    <div class="ov" id="menu">
+      <h1>Air <span>Hockey</span></h1>
+      <p>Play a friend online with live video. One of you creates a game, the other joins with the code.</p>
+      <button class="b go" id="createBtn">Create online game</button>
+      <div class="grp"><input id="codeIn" maxlength="5" placeholder="CODE" aria-label="Game code"><button class="b" id="joinBtn">Join</button></div>
+      <div class="err" id="err"></div>
+      <hr>
+      <div class="small">Or practise against the computer</div>
+      <div class="grp">
+        <button class="b sm" data-cpu="easy">Easy</button>
+        <button class="b sm" data-cpu="normal">Normal</button>
+        <button class="b sm" data-cpu="hard">Hard</button>
+      </div>
+    </div>
+
+    <div class="ov hidden" id="wait">
+      <h2>Share this code</h2>
+      <div class="code" id="codeOut"></div>
+      <button class="b sm" id="copyBtn">Copy code</button>
+      <p id="waitMsg">Waiting for your friend to join… The match starts as soon as they connect.</p>
+    </div>
+
+    <div class="ov hidden" id="over">
+      <h2 id="overT">You win!</h2>
+      <p id="overP"></p>
+      <div class="grp"><button class="b go" id="againBtn">Play again</button><button class="b" id="menuBtn">Main menu</button></div>
+    </div>
+  </div>
+  <div class="vids">
+    <div class="tile"><video id="remote" autoplay playsinline></video><div id="vMsg">Friend's video</div><span>Friend</span></div>
+    <div class="tile"><video id="local" autoplay playsinline muted></video><span>You</span></div>
+  </div>
+</div>
+<script>
+{
+const $=id=>document.getElementById(id);
+const W=500,H=860,M=22,GW=180,PR=34,KR=21,WIN=7,DT=1/120;
+const AI={easy:{sp:520,err:70,react:.25},normal:{sp:820,err:30,react:.12},hard:{sp:1250,err:8,react:.04}};
+const cv=$('c'),g=cv.getContext('2d');
+// role: 'cpu' | 'host' | 'guest'. World: host = bottom mallet, guest/CPU = top mallet. Guest sees the world rotated 180°.
+let role=null,cpu='normal',running=false,sound=true,score={top:0,bot:0},freeze=0,winner=null;
+let peer=null,conn=null,stream=null,events=[];
+const mk=(x,y)=>({x,y,vx:0,vy:0,tx:x,ty:y,px:x,py:y});
+const bot=mk(W/2,H-110),top=mk(W/2,110),puck={x:W/2,y:H/2,vx:0,vy:0,trail:[]};
+let aiT={x:W/2,y:110,t:0},net={t:0,px:W/2,py:H/2,vx:0,vy:0};
+const flip=()=>role==='guest';
+const myM=()=>flip()?top:bot, theirM=()=>flip()?bot:top;
+
+/* ---------- sound ---------- */
+let ac=null,lastHit=0;
+function tone(f,d,type='sine',v=.18,slide=0){if(!sound)return;try{ac=ac||new AudioContext();const o=ac.createOscillator(),gn=ac.createGain(),t=ac.currentTime;o.type=type;o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+d);gn.gain.setValueAtTime(v,t);gn.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(gn).connect(ac.destination);o.start(t);o.stop(t+d)}catch(e){}}
+const SND={h:s=>{const n=performance.now();if(n-lastHit<40)return;lastHit=n;tone(300+Math.min(s,1800)*.4,.07,'square',.06+Math.min(s/1800,1)*.1)},w:()=>tone(180,.05,'triangle',.08),
+  g:()=>{tone(880,.5,'sawtooth',.08,220);setTimeout(()=>tone(440,.3,'square',.06),120)},win:()=>[523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,.25,'triangle',.15),i*130))};
+const ev=(k,v)=>{SND[k](v);if(role==='host')events.push(k==='h'?['h',Math.round(v)]:[k])};
+
+/* ---------- table art ---------- */
+const deck=document.createElement('canvas');
+function buildDeck(sc){
+  deck.width=(W+2*M)*sc;deck.height=(H+2*M)*sc;const d=deck.getContext('2d');d.scale(sc,sc);
+  d.fillStyle='#6d1222';d.beginPath();d.roundRect(0,0,W+2*M,H+2*M,30);d.fill();
+  d.strokeStyle='#a52439';d.lineWidth=8;d.beginPath();d.roundRect(6,6,W+2*M-12,H+2*M-12,26);d.stroke();
+  d.translate(M,M);
+  const s=d.createLinearGradient(0,0,0,H);s.addColorStop(0,'#eef4f7');s.addColorStop(.5,'#fbfdfe');s.addColorStop(1,'#eef4f7');
+  d.fillStyle=s;d.beginPath();d.roundRect(0,0,W,H,18);d.fill();d.save();d.clip();
+  d.fillStyle='#c5d3dc';for(let y=14;y<H;y+=20)for(let x=(y/20%2?10:20);x<W;x+=20){d.beginPath();d.arc(x,y,1.3,0,7);d.fill()}
+  d.strokeStyle='#e0283f';d.lineWidth=5;d.beginPath();d.moveTo(0,H/2);d.lineTo(W,H/2);d.stroke();
+  d.lineWidth=3;d.beginPath();d.arc(W/2,H/2,70,0,7);d.stroke();d.fillStyle='#e0283f';d.beginPath();d.arc(W/2,H/2,8,0,7);d.fill();
+  d.strokeStyle='#1f6fd1';d.lineWidth=4;[[0,0],[H,Math.PI]].forEach(([y,a])=>{d.beginPath();d.arc(W/2,y,110,a,a+Math.PI);d.stroke()});
+  d.lineWidth=2;[H*.25,H*.75].forEach(y=>{d.beginPath();d.moveTo(0,y);d.lineTo(W,y);d.stroke()});
+  d.restore();d.fillStyle='#160307';[-M+4,H+2].forEach(y=>{d.beginPath();d.roundRect(W/2-GW/2,y,GW,M-6,6);d.fill()});
+}
+function fit(){const r=$('wrap').getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);buildDeck(cv.width/(W+2*M))}
+const ro=new ResizeObserver(fit);ro.observe($('wrap'));
+
+/* ---------- input (always moves *my* mallet; guest coords are flipped) ---------- */
+const keys={};
+function aim(e){const r=cv.getBoundingClientRect();let x=(e.clientX-r.left)/r.width*(W+2*M)-M,y=(e.clientY-r.top)/r.height*(H+2*M)-M;if(flip()){x=W-x;y=H-y}const m=myM();m.tx=x;m.ty=y}
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);aim(e)});
+cv.addEventListener('pointermove',aim);
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=1;if(e.key.startsWith('Arrow'))e.preventDefault()});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+function keyMove(dt){const m=myM(),s=flip()?-1:1,v=900*dt*s;if(keys.arrowup||keys.w)m.ty-=v;if(keys.arrowdown||keys.s)m.ty+=v;if(keys.arrowleft||keys.a)m.tx-=v;if(keys.arrowright||keys.d)m.tx+=v}
+
+/* ---------- physics ---------- */
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function moveMallet(m,dt,max,isTop){
+  m.tx=clamp(m.tx,PR,W-PR);m.ty=isTop?clamp(m.ty,PR,H/2-PR):clamp(m.ty,H/2+PR,H-PR);
+  m.px=m.x;m.py=m.y;let dx=m.tx-m.x,dy=m.ty-m.y,d=Math.hypot(dx,dy),st=max*dt;
+  if(d>st){dx*=st/d;dy*=st/d}m.x+=dx;m.y+=dy;m.vx=(m.x-m.px)/dt;m.vy=(m.y-m.py)/dt;
+}
+function collide(m){
+  const dx=puck.x-m.x,dy=puck.y-m.y,d=Math.hypot(dx,dy),R=PR+KR;if(d>=R||d===0)return;
+  const nx=dx/d,ny=dy/d;puck.x=m.x+nx*R;puck.y=m.y+ny*R;
+  const rv=(puck.vx-m.vx)*nx+(puck.vy-m.vy)*ny;if(rv<0){puck.vx-=1.9*rv*nx;puck.vy-=1.9*rv*ny;ev('h',Math.hypot(puck.vx,puck.vy))}
+}
+function aiStep(dt){
+  const c=AI[cpu];aiT.t-=dt;
+  if(aiT.t<=0){aiT.t=c.react;const e=()=>(Math.random()-.5)*c.err*2;
+    if(puck.y<H/2+20){if(puck.y<top.y-5){aiT.x=puck.x+(puck.x<W/2?40:-40);aiT.y=PR}else{aiT.x=puck.x+e();aiT.y=puck.y-KR*.6}}
+    else{const t=puck.vy<0?(puck.y-130)/-puck.vy:0;aiT.x=clamp(puck.x+puck.vx*Math.min(t,.6),W/2-GW/2-20,W/2+GW/2+20)+e();aiT.y=120}}
+  top.tx=aiT.x;top.ty=aiT.y;
+}
+function step(dt){                       // authoritative: runs on host and in CPU mode
+  keyMove(dt);if(role==='cpu')aiStep(dt);
+  moveMallet(bot,dt,3000,false);moveMallet(top,dt,role==='cpu'?AI[cpu].sp:3000,true);
+  if(freeze>0){freeze-=dt;return}
+  puck.x+=puck.vx*dt;puck.y+=puck.vy*dt;const f=Math.pow(.992,dt*120);puck.vx*=f;puck.vy*=f;
+  const sp=Math.hypot(puck.vx,puck.vy);if(sp>2000){puck.vx*=2000/sp;puck.vy*=2000/sp}
+  if(puck.x<KR){puck.x=KR;puck.vx=Math.abs(puck.vx)*.9;ev('w')}
+  if(puck.x>W-KR){puck.x=W-KR;puck.vx=-Math.abs(puck.vx)*.9;ev('w')}
+  const inGoal=Math.abs(puck.x-W/2)<GW/2-KR*.4;
+  if(puck.y<KR&&!inGoal){puck.y=KR;puck.vy=Math.abs(puck.vy)*.9;ev('w')}
+  if(puck.y>H-KR&&!inGoal){puck.y=H-KR;puck.vy=-Math.abs(puck.vy)*.9;ev('w')}
+  if(puck.y<-KR)return goal('bot');if(puck.y>H+KR)return goal('top');
+  collide(bot);collide(top);
+}
+function goal(who){
+  score[who]++;ev('g');showGoal(who);
+  if(score[who]>=WIN){winner=who;running=false;ev('win');showOver();sendState();return}
+  resetPuck(who==='bot'?'top':'bot');
+}
+function resetPuck(side){puck.x=W/2;puck.y=side==='top'?H/2-150:H/2+150;puck.vx=puck.vy=0;puck.trail=[];freeze=.9}
+const mine=who=>(who==='bot')!==flip();
+function showGoal(who){flash(mine(who)?'GOAL!':(role==='cpu'?'CPU scores':'Friend scores'),mine(who)?'#5aa2ff':'#ff5a6e');renderScore()}
+function showOver(){
+  const w=mine(winner);$('overT').textContent=w?'You win!':(role==='cpu'?'CPU wins':'Friend wins');
+  const me=flip()?score.top:score.bot,them=flip()?score.bot:score.top;$('overP').textContent=`Final score ${me} – ${them}`;
+  $('over').classList.remove('hidden');
+}
+function flash(t,c){const f=$('flash');f.textContent=t;f.style.color=c;f.classList.add('show');clearTimeout(flash.t);flash.t=setTimeout(()=>f.classList.remove('show'),900)}
+function renderScore(){$('sBot').textContent=flip()?score.top:score.bot;$('sTop').textContent=flip()?score.bot:score.top}
+
+/* ---------- network sync ---------- */
+const r1=v=>Math.round(v*10)/10;
+function sendState(){
+  if(!conn||!conn.open)return;
+  conn.send({t:'s',p:[r1(puck.x),r1(puck.y),Math.round(puck.vx),Math.round(puck.vy)],b:[r1(bot.x),r1(bot.y)],sc:[score.top,score.bot],w:winner,run:running,e:events});events=[];
+}
+function onData(d){
+  if(!d)return;
+  if(role==='host'){
+    if(d.t==='m'){top.tx=W-d.x;top.ty=H-d.y}         // guest sends its aim in its own (flipped) view
+    if(d.t==='again'&&!running)start();
+    return;
+  }
+  if(d.t==='s'){
+    net={t:performance.now(),px:d.p[0],py:d.p[1],vx:d.p[2],vy:d.p[3]};bot.x=d.b[0];bot.y=d.b[1];
+    const old=score;score={top:d.sc[0],bot:d.sc[1]};
+    (d.e||[]).forEach(([k,v])=>k!=='g'&&k!=='win'&&SND[k](v));
+    if(score.top>old.top||score.bot>old.bot){SND.g();showGoal(score.top>old.top?'top':'bot');puck.trail=[]}
+    if(d.w&&!winner){winner=d.w;SND.win();showOver()}
+    if(!d.w&&winner){winner=null;$('over').classList.add('hidden')}
+    running=d.run;renderScore();
+  }
+}
+let lastSend=0;
+function guestTick(dt){
+  keyMove(dt);moveMallet(top,dt,3000,true);
+  const age=Math.min((performance.now()-net.t)/1000,.1);
+  puck.x=clamp(net.px+net.vx*age,KR,W-KR);puck.y=net.py+net.vy*age;
+  const n=performance.now();if(conn&&conn.open&&n-lastSend>15){lastSend=n;conn.send({t:'m',x:W-top.x,y:H-top.y})}
+}
+
+/* ---------- draw ---------- */
+function mallet(m,c1,c2){
+  g.fillStyle='#0003';g.beginPath();g.ellipse(m.x+4,m.y+8,PR,PR*.9,0,0,7);g.fill();
+  const gr=g.createRadialGradient(m.x-10,m.y-12,4,m.x,m.y,PR);gr.addColorStop(0,c1);gr.addColorStop(1,c2);
+  g.fillStyle=gr;g.beginPath();g.arc(m.x,m.y,PR,0,7);g.fill();
+  g.strokeStyle='#0004';g.lineWidth=3;g.beginPath();g.arc(m.x,m.y,PR*.62,0,7);g.stroke();
+  const k=g.createRadialGradient(m.x-5,m.y-7,2,m.x,m.y,PR*.5);k.addColorStop(0,'#fff8');k.addColorStop(.35,c1);k.addColorStop(1,c2);
+  g.fillStyle=k;g.beginPath();g.arc(m.x,m.y,PR*.48,0,7);g.fill();
+}
+const V=p=>flip()?{x:W-p.x,y:H-p.y}:p;
+function draw(){
+  const k=cv.width/(W+2*M);g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,cv.width,cv.height);
+  g.drawImage(deck,0,0,cv.width,cv.height);g.setTransform(k,0,0,k,M*k,M*k);
+  puck.trail.forEach((p,i)=>{const q=V(p);g.fillStyle=`rgba(40,40,60,${i/puck.trail.length*.12})`;g.beginPath();g.arc(q.x,q.y,KR*(.5+i/puck.trail.length*.5),0,7);g.fill()});
+  const p=V(puck);
+  g.fillStyle='#0003';g.beginPath();g.ellipse(p.x+3,p.y+5,KR,KR*.85,0,0,7);g.fill();
+  const pg=g.createRadialGradient(p.x-6,p.y-6,2,p.x,p.y,KR);pg.addColorStop(0,'#4a4a55');pg.addColorStop(1,'#111116');
+  g.fillStyle=pg;g.beginPath();g.arc(p.x,p.y,KR,0,7);g.fill();g.strokeStyle='#ffc83d';g.lineWidth=2.5;g.beginPath();g.arc(p.x,p.y,KR*.62,0,7);g.stroke();
+  mallet(V(theirM()),'#ff6b7d','#a3122a');mallet(V(myM()),'#6fb0ff','#13458f');
+}
+let last=0,acc=0;
+function loop(t){
+  const el=Math.min((t-last)/1000||0,.05);last=t;
+  if(role==='guest')guestTick(el);
+  else if(running){acc+=el;while(acc>=DT){step(DT);acc-=DT}if(role==='host')sendState()}
+  else if(role){keyMove(el);moveMallet(bot,el,3000,false)}
+  if(running){puck.trail.push({x:puck.x,y:puck.y});if(puck.trail.length>8)puck.trail.shift()}
+  draw();requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ---------- flow ---------- */
+function start(){
+  score={top:0,bot:0};winner=null;renderScore();
+  Object.assign(bot,mk(W/2,H-110));Object.assign(top,mk(W/2,110));aiT={x:W/2,y:110,t:0};
+  resetPuck(Math.random()<.5?'top':'bot');
+  ['menu','wait','over'].forEach(id=>$(id).classList.add('hidden'));running=true;tone(660,.1,'triangle',.1);
+}
+const hideMenus=()=>['menu','wait','over'].forEach(id=>$(id).classList.add('hidden'));
+$('againBtn').onclick=()=>{if(role==='guest'){[0,150,300].forEach(t=>setTimeout(()=>conn&&conn.open&&conn.send({t:'again'}),t));$('overP').textContent='Starting…'}else start()};
+$('menuBtn').onclick=()=>{location.reload()};
+document.querySelectorAll('[data-cpu]').forEach(b=>b.onclick=()=>{role='cpu';cpu=b.dataset.cpu;$('nTop').textContent='CPU';$('tag').textContent=cap(cpu)+' CPU';start()});
+const cap=s=>s[0].toUpperCase()+s.slice(1);
+
+async function getMedia(){
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{width:480,height:360},audio:{echoCancellation:true,noiseSuppression:true}});$('local').srcObject=stream}
+  catch(e){$('vMsg').textContent='Camera/mic unavailable — the game still works';stream=null}
+}
+const showRemote=s=>{$('remote').srcObject=s;$('vMsg').classList.add('hidden')};
+function wire(c){
+  conn=c;
+  c.on('open',()=>{$('tag').textContent='Connected';if(role==='host')start();else hideMenus()});
+  c.on('data',onData);
+  c.on('close',()=>{running=false;$('tag').textContent='Friend left';$('vMsg').classList.remove('hidden');$('vMsg').textContent='Your friend disconnected';flash('Friend left','#fff4f0')});
+}
+const newCode=()=>[...Array(5)].map(()=>'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*31)]).join('');
+const pid=c=>'airhockey-cm-2026-'+c.toLowerCase();
+const noLib=()=>{if(window.Peer)return false;$('err').textContent='Could not load the connection library. Check your internet and reload.';return true};
+
+$('createBtn').onclick=async()=>{
+  if(noLib())return;role='host';const code=newCode();
+  $('menu').classList.add('hidden');$('wait').classList.remove('hidden');$('codeOut').textContent=code;$('tag').textContent='Code '+code;
+  await getMedia();
+  peer=new Peer(pid(code));
+  peer.on('connection',c=>{if(conn&&conn.open){c.close();return}wire(c)});
+  peer.on('call',call=>{call.answer(stream||undefined);call.on('stream',showRemote)});
+  peer.on('error',e=>{$('waitMsg').textContent='Connection error ('+e.type+'). Reload and try again.'});
+};
+$('copyBtn').onclick=()=>{navigator.clipboard?.writeText($('codeOut').textContent).then(()=>$('copyBtn').textContent='Copied!').catch(()=>{})};
+$('joinBtn').onclick=async()=>{
+  const code=$('codeIn').value.trim().toUpperCase();
+  if(code.length!==5){$('err').textContent='Enter the 5-letter code from your friend.';return}
+  if(noLib())return;role='guest';$('err').textContent='Connecting…';
+  await getMedia();
+  peer=new Peer();
+  peer.on('open',()=>{
+    wire(peer.connect(pid(code),{reliable:false,serialization:'json'}));
+    const call=peer.call(pid(code),stream||new MediaStream());call&&call.on('stream',showRemote);
+    $('tag').textContent='Code '+code;
+  });
+  peer.on('error',e=>{role=null;$('err').textContent=e.type==='peer-unavailable'?'No game with that code. Check it and try again.':'Connection error ('+e.type+')'});
+};
+$('codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('joinBtn').click()});
+$('micBtn').onclick=()=>{const a=stream?.getAudioTracks()[0];if(!a)return;a.enabled=!a.enabled;$('micBtn').classList.toggle('off',!a.enabled)};
+$('camBtn').onclick=()=>{const v=stream?.getVideoTracks()[0];if(!v)return;v.enabled=!v.enabled;$('camBtn').classList.toggle('off',!v.enabled)};
+$('sndBtn').onclick=()=>{sound=!sound;$('sndBtn').style.opacity=sound?1:.4};
+addEventListener('beforeunload',()=>peer&&peer.destroy());
+}
+</script>
+</body>
+</html>
