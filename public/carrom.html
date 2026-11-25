@@ -48,7 +48,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-o
 .b{font:700 17px Hind,sans-serif;min-height:48px;padding:0 18px;border-radius:12px;border:0;cursor:pointer;background:var(--honey);color:#2a1a10;box-shadow:0 4px 0 #b39461}
 .b:active{transform:translateY(3px);box-shadow:0 1px 0 #b39461}
 .b.go{background:var(--red);color:#fff;box-shadow:0 4px 0 #7e1119}
-input{font:700 22px Hind,sans-serif;letter-spacing:.15em;text-transform:uppercase;min-height:48px;width:9em;padding:0 12px;border-radius:12px;border:2px solid #6b4128;background:#1f140d;color:var(--ink);text-align:center}
+input[type=range]{width:100%;min-height:36px;accent-color:#c8202e;margin:4px 0 0;padding:0;border:0;background:none;letter-spacing:0}
+.slab{display:block;margin-top:10px;font-size:14px;font-weight:600}
+input:not([type]){font:700 22px Hind,sans-serif;letter-spacing:.15em;text-transform:uppercase;min-height:48px;width:9em;padding:0 12px;border-radius:12px;border:2px solid #6b4128;background:#1f140d;color:var(--ink);text-align:center}
 .code{font:700 44px/1 Hind,sans-serif;letter-spacing:.15em;color:var(--gold)}
 .small{font-size:13px;color:var(--mute)}
 .err{color:#ffb0a0;min-height:1.5em;font-size:15px}
@@ -95,7 +97,9 @@ input{font:700 22px Hind,sans-serif;letter-spacing:.15em;text-transform:uppercas
       <div class="pl" id="plThem"><div class="dot" style="background:#2b1d14"></div><b id="themName">Friend · Black</b><span class="n" id="themN">0/9</span></div>
       <div class="q" id="queenTxt">Queen on board — pocket it and then one of your coins to cover it.</div>
     </div>
-    <div class="card"><div id="status">Waiting…</div><div id="msg"></div></div>
+    <div class="card"><div id="status">Waiting…</div><div id="msg"></div>
+      <label class="slab" for="slide">Striker position <span class="small">(or ← → keys)</span></label>
+      <input type="range" id="slide" min="140" max="560" value="350" disabled></div>
     <div class="vids">
       <div class="tile"><video id="remote" autoplay playsinline></video><div id="vMsg">Friend's video</div><span>Friend</span></div>
       <div class="tile"><video id="local" autoplay playsinline muted></video><span>You</span></div>
@@ -105,7 +109,7 @@ input{font:700 22px Hind,sans-serif;letter-spacing:.15em;text-transform:uppercas
       <button class="icon" id="camBtn">Cam on</button>
       <button class="icon" id="sndBtn">Sound on</button>
     </div>
-    <div class="help">Slide along your baseline to place the striker. Then press on the striker, pull back like a slingshot and let go. Pocket your coins to keep shooting.</div>
+    <div class="help">Drag the striker sideways along your baseline (or use the slider) to place it. Then press on the striker, pull back like a slingshot and let go. Pocket your coins to keep shooting.</div>
   </aside>
 </div>
 <script>
@@ -177,7 +181,7 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const validSpot=()=>S.coins.every(c=>c.in||Math.hypot(c.x-striker.x,c.y-striker.y)>CR+SR+1);
 function shoot(vx,vy){
   if(!myTurn()||phase!=='aim'||!validSpot())return;
-  striker.vx=vx;striker.vy=vy;phase='moving';shot={pocketed:[],queenWas:S.queen};aim=null;tone(400,.05,'square',.1);send({t:'a',x:striker.x,aim:null});
+  striker.vx=vx;striker.vy=vy;phase='moving';$('slide').disabled=true;shot={pocketed:[],queenWas:S.queen};aim=null;tone(400,.05,'square',.1);send({t:'a',x:striker.x,aim:null});
 }
 function resolve(){
   const col=S.turn,mc=col[0],oc=other(col)[0],P=shot.pocketed;
@@ -206,7 +210,7 @@ function resolve(){
 const cap=s=>s[0].toUpperCase()+s.slice(1);
 function enterTurn(){
   striker={x:F/2,y:BASE[S.turn],vx:0,vy:0,in:false};
-  phase=myTurn()?'aim':'idle';remoteAim=null;ui();
+  phase=myTurn()?'aim':'idle';remoteAim=null;$('slide').disabled=phase!=='aim';syncSlider();ui();
 }
 
 /* ---------- networking ---------- */
@@ -228,17 +232,26 @@ function sendAim(){const n=performance.now();if(n-lastAimSend<60)return;lastAimS
 cv.addEventListener('pointerdown',e=>{
   if(!myTurn()||phase!=='aim')return;cv.setPointerCapture(e.pointerId);
   const p=toWorld(e);
-  if(Math.hypot(p.x-striker.x,p.y-striker.y)<SR*2.2)drag={k:'aim'};
-  else if(Math.abs(p.y-striker.y)<70){drag={k:'slide'};striker.x=clamp(p.x,BX0,BX1);sendAim()}
+  if(Math.hypot(p.x-striker.x,p.y-striker.y)<SR*2.2)drag={k:'pending',sx:p.x,ox:striker.x};
+  else if(Math.abs(p.y-striker.y)<80){drag={k:'slide',sx:p.x,ox:p.x};setX(p.x)}
 });
+function setX(x){striker.x=clamp(x,BX0,BX1);syncSlider();sendAim()}
+function syncSlider(){const v=flip()?F-striker.x:striker.x;$('slide').value=Math.round(v)}
 cv.addEventListener('pointermove',e=>{
   if(!drag)return;const p=toWorld(e);
-  if(drag.k==='slide'){striker.x=clamp(p.x,BX0,BX1)}else{aim={x:p.x-striker.x,y:p.y-striker.y}}sendAim();
+  if(drag.k==='pending'){                       // decide: slide sideways along the baseline, or pull back to aim
+    if(Math.abs(p.y-striker.y)>SR*1.1)drag.k='aim';
+    else if(Math.abs(p.x-drag.sx)>6)drag.k='slide';
+  }
+  if(drag.k==='slide')setX(drag.ox+(p.x-drag.sx));
+  else if(drag.k==='aim'){aim={x:p.x-striker.x,y:p.y-striker.y};sendAim()}
 });
 const release=()=>{
   if(drag&&drag.k==='aim'&&aim){const d=Math.hypot(aim.x,aim.y);if(d>12){const pw=Math.min(d/170,1)*MAXV;shoot(-aim.x/d*pw,-aim.y/d*pw)}else{aim=null;sendAim()}}
   drag=null;
 };
+$('slide').addEventListener('input',e=>{if(phase!=='aim')return;const v=+e.target.value;setX(flip()?F-v:v)});
+addEventListener('keydown',e=>{if(phase!=='aim'||e.target.tagName==='INPUT')return;const d=e.key==='ArrowLeft'?-6:e.key==='ArrowRight'?6:0;if(d){e.preventDefault();setX(striker.x+(flip()?-d:d))}});
 cv.addEventListener('pointerup',release);cv.addEventListener('pointercancel',()=>{drag=null;aim=null});
 
 /* ---------- drawing ---------- */
