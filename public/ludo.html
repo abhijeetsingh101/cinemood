@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ludo with Friends</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+/* VOICE: warm, playful family game night
+   IDEA: a wooden Ludo board on a table, with your friend's face beside it
+   PICTURE: the board itself, large, tokens that pulse when movable
+   COLOUR and TYPE: walnut table, classic Ludo red/green/yellow/blue, Baloo 2
+   LAYOUT: board left, video + dice panel right; stacks on phones */
+:root{color-scheme:dark;--bg:#2b1a12;--panel:#3d271b;--ink:#fbefe0;--mute:#d6bfa6;--red:#e23b3b;--green:#2fa84f;--yellow:#f2be00;--blue:#2d6fd6}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 30% 20%,#4a2e1f,var(--bg) 70%);color:var(--ink);font:16px/1.5 "Baloo 2",system-ui,sans-serif;overflow-x:clip}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px max(4vw,16px);flex-wrap:wrap}
+h1{margin:0;font-size:32px;line-height:1.05;font-weight:800}
+h1 span{color:var(--yellow)}
+#roomTag{font-size:15px;color:var(--mute)}
+main{display:grid;grid-template-columns:minmax(0,600px) minmax(0,340px);gap:24px;justify-content:center;padding:0 max(4vw,16px) 32px}
+#boardWrap{background:#1c110b;padding:10px;border-radius:18px;box-shadow:0 18px 40px #0008,inset 0 0 0 2px #5c3a26}
+canvas{display:block;width:100%;aspect-ratio:1;border-radius:10px;cursor:pointer;touch-action:manipulation}
+aside{display:flex;flex-direction:column;gap:14px}
+.vids{position:relative;background:#120a06;border-radius:16px;aspect-ratio:4/3;overflow:hidden;box-shadow:0 10px 26px #0007}
+.vids video{width:100%;height:100%;object-fit:cover;display:block;background:#120a06}
+#local{position:absolute;right:10px;bottom:10px;width:32%;height:auto;aspect-ratio:4/3;border-radius:10px;border:2px solid var(--ink);transform:scaleX(-1)}
+#vidMsg{position:absolute;inset:0;display:grid;place-items:center;color:var(--mute);text-align:center;padding:20px;pointer-events:none}
+.card{background:var(--panel);border-radius:16px;padding:16px;box-shadow:0 10px 26px #0006}
+#status{font-size:20px;font-weight:700;line-height:1.2;min-height:48px}
+#sub{color:var(--mute);font-size:15px;min-height:24px}
+.diceRow{display:flex;align-items:center;gap:16px;margin-top:10px}
+#dice{width:84px;height:84px;border-radius:18px;border:0;background:#fffaf2;cursor:pointer;box-shadow:0 6px 0 #b9a58c,0 10px 18px #0006;padding:10px;transition:transform .1s}
+#dice:active{transform:translateY(4px);box-shadow:0 2px 0 #b9a58c}
+#dice:disabled{cursor:not-allowed;opacity:.55}
+#dice.spin{animation:spin .45s ease}
+@keyframes spin{50%{transform:rotate(200deg) scale(.85)}}
+.pips{display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);width:100%;height:100%}
+.pips i{width:13px;height:13px;border-radius:50%;background:#2b1a12;place-self:center}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button.b{font:700 16px "Baloo 2",sans-serif;min-height:44px;padding:0 16px;border-radius:12px;border:0;background:#5c3a26;color:var(--ink);cursor:pointer}
+button.b:hover{background:#6e4730}
+button.b.primary{background:var(--yellow);color:#2b1a12}
+button.b.off{background:#8a2d2d}
+button:focus-visible,input:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+.you{display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:-1px;margin-right:6px}
+#lobby{position:fixed;inset:0;background:#1c110bee;display:grid;place-items:center;padding:16px;z-index:5}
+#lobby .card{max-width:440px;width:100%;display:flex;flex-direction:column;gap:14px}
+#lobby h2{margin:0;font-size:32px;line-height:1.05}
+#lobby p{margin:0;color:var(--mute)}
+input{font:700 22px "Baloo 2",sans-serif;letter-spacing:.15em;text-transform:uppercase;min-height:48px;padding:0 14px;border-radius:12px;border:2px solid #6e4730;background:#2b1a12;color:var(--ink);width:100%}
+.row{display:flex;gap:8px}
+.code{font-size:40px;font-weight:800;letter-spacing:.2em;color:var(--yellow);text-align:center;line-height:1}
+.hidden{display:none!important}
+@media(max-width:860px){main{grid-template-columns:minmax(0,1fr);max-width:600px;margin:0 auto}aside{order:-1}.vids{aspect-ratio:16/9}}
+@media(prefers-reduced-motion:reduce){#dice.spin{animation:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ludo <span>with Friends</span></h1>
+  <div id="roomTag"></div>
+</header>
+<main>
+  <div id="boardWrap"><canvas id="board" width="900" height="900" aria-label="Ludo board"></canvas></div>
+  <aside>
+    <div class="vids">
+      <video id="remote" autoplay playsinline></video>
+      <video id="local" autoplay playsinline muted></video>
+      <div id="vidMsg">Your friend's video will appear here</div>
+    </div>
+    <div class="card">
+      <div id="status">Waiting…</div>
+      <div id="sub"></div>
+      <div class="diceRow">
+        <button id="dice" aria-label="Roll dice" disabled></button>
+        <div id="hint" style="color:var(--mute);font-size:15px">Roll a 6 to bring a token out. Sixes, captures and reaching home give another roll.</div>
+      </div>
+    </div>
+    <div class="btns">
+      <button class="b" id="micBtn">Mute mic</button>
+      <button class="b" id="camBtn">Camera off</button>
+      <button class="b" id="newBtn">New game</button>
+    </div>
+  </aside>
+</main>
+
+<div id="lobby">
+  <div class="card" id="lobbyMain">
+    <h2>Play Ludo online</h2>
+    <p>One of you creates a game and shares the code. The other joins with it. Allow camera and microphone when asked.</p>
+    <button class="b primary" id="createBtn">Create a game</button>
+    <div class="row"><input id="codeIn" maxlength="5" placeholder="CODE" aria-label="Game code"><button class="b" id="joinBtn">Join</button></div>
+    <button class="b" id="localBtn">Practice on this device</button>
+    <p id="lobbyErr" style="color:#ff9b8a"></p>
+  </div>
+  <div class="card hidden" id="lobbyWait">
+    <h2>Share this code</h2>
+    <div class="code" id="codeOut"></div>
+    <button class="b" id="copyBtn">Copy code</button>
+    <p id="waitMsg">Waiting for your friend to join…</p>
+  </div>
+</div>
+
+<script>
+{
+const $=id=>document.getElementById(id);
+const COL={red:'#e23b3b',green:'#2fa84f',yellow:'#f2be00',blue:'#2d6fd6'};
+const DARK={red:'#9e1f1f',green:'#1d6e33',yellow:'#a88300',blue:'#1b478f'};
+const PLAYERS=['red','yellow'];
+const OFF={red:0,green:13,yellow:26,blue:39};
+const SAFE=[0,8,13,21,26,34,39,47];
+
+// 52-square track as [row,col], starting at red's start square
+const T=[];
+for(let c=1;c<=5;c++)T.push([6,c]);
+for(let r=5;r>=0;r--)T.push([r,6]);
+T.push([0,7]);
+for(let r=0;r<=5;r++)T.push([r,8]);
+for(let c=9;c<=14;c++)T.push([6,c]);
+T.push([7,14]);
+for(let c=14;c>=9;c--)T.push([8,c]);
+for(let r=9;r<=14;r++)T.push([r,8]);
+T.push([14,7]);
+for(let r=14;r>=9;r--)T.push([r,6]);
+for(let c=5;c>=0;c--)T.push([8,c]);
+T.push([7,0]);T.push([6,0]);
+const HOME={red:[1,2,3,4,5].map(c=>[7,c]),yellow:[13,12,11,10,9].map(c=>[7,c]),green:[1,2,3,4,5].map(r=>[r,7]),blue:[13,12,11,10,9].map(r=>[r,7])};
+const YARD={red:[0,0],green:[0,9],yellow:[9,9],blue:[9,0]};
+
+const fresh=()=>({tokens:{red:[-1,-1,-1,-1],yellow:[-1,-1,-1,-1]},turn:'red',dice:0,rolled:false,sixes:0,winner:null,msg:'',ev:'',seq:0});
+let S=fresh(),me=null,mode=null,conn=null,peer=null,stream=null,drawn=[];
+
+/* ---------- sound ---------- */
+let ac=null;
+const tone=(f,d,t=0,type='sine',g=.15)=>{try{ac=ac||new AudioContext();const o=ac.createOscillator(),v=ac.createGain();o.type=type;o.frequency.value=f;v.gain.setValueAtTime(g,ac.currentTime+t);v.gain.exponentialRampToValueAtTime(.001,ac.currentTime+t+d);o.connect(v).connect(ac.destination);o.start(ac.currentTime+t);o.stop(ac.currentTime+t+d)}catch(e){}};
+const SND={roll:()=>{for(let i=0;i<6;i++)tone(300+Math.random()*500,.05,i*.05,'square',.05)},move:()=>tone(660,.12,0,'triangle'),cap:()=>{tone(500,.15);tone(260,.3,.12,'sawtooth',.08)},home:()=>{tone(523,.15);tone(784,.25,.12)},win:()=>[523,659,784,1046].forEach((f,i)=>tone(f,.3,i*.15,'triangle'))};
+
+/* ---------- rules ---------- */
+const other=c=>c==='red'?'yellow':'red';
+const absIdx=(c,p)=>(p+OFF[c])%52;
+const canMove=(c,i,v)=>{const p=S.tokens[c][i];if(p===56)return false;if(p===-1)return v===6;return p+v<=56};
+const movable=(c,v)=>[0,1,2,3].filter(i=>canMove(c,i,v));
+const mine=c=>mode==='local'||c===me;
+
+function roll(){
+  if(S.winner||S.rolled||!mine(S.turn))return;
+  const v=1+Math.floor(Math.random()*6),c=S.turn;
+  S.dice=v;S.rolled=true;S.ev='roll';
+  S.sixes=v===6?S.sixes+1:0;
+  const name=cap(c);
+  if(S.sixes===3){S.msg=`${name} rolled three sixes, turn lost`;pass();}
+  else if(!movable(c,v).length){S.msg=`${name} rolled ${v}, no move`;pass();}
+  else S.msg=`${name} rolled ${v}, pick a token`;
+  commit();
+}
+function pass(){S.turn=other(S.turn);S.rolled=false;S.sixes=0}
+function move(i){
+  const c=S.turn,v=S.dice;
+  if(!S.rolled||!mine(c)||!canMove(c,i,v))return;
+  const t=S.tokens[c];let bonus=v===6,ev='move';
+  t[i]=t[i]===-1?0:t[i]+v;
+  const name=cap(c);S.msg=`${name} moved ${v}`;
+  if(t[i]<=50){
+    const a=absIdx(c,t[i]);
+    if(!SAFE.includes(a)){
+      const o=other(c);let hit=0;
+      S.tokens[o].forEach((p,j)=>{if(p>=0&&p<=50&&absIdx(o,p)===a){S.tokens[o][j]=-1;hit++}});
+      if(hit){bonus=true;ev='cap';S.msg=`${name} captured ${cap(o)}! Roll again`}
+    }
+  }
+  if(t[i]===56){bonus=true;ev='home';S.msg=`${name} reached home! Roll again`}
+  if(t.every(p=>p===56)){S.winner=c;ev='win';S.msg=`${name} wins!`}
+  else if(bonus){S.rolled=false;if(v!==6)S.sixes=0;if(ev==='move')S.msg=`${name} rolled a 6, roll again`}
+  else pass();
+  S.ev=ev;commit();
+}
+const cap=c=>c[0].toUpperCase()+c.slice(1);
+function commit(){S.seq++;render(true);if(conn&&conn.open)conn.send({t:'state',S})}
+
+/* ---------- drawing ---------- */
+const cv=$('board'),g=cv.getContext('2d'),N=900,s=N/15;
+const cell=(r,c,fill,stroke='#3a2a20')=>{g.fillStyle=fill;g.fillRect(c*s,r*s,s,s);g.strokeStyle=stroke;g.lineWidth=1.5;g.strokeRect(c*s,r*s,s,s)};
+function star(x,y,R,fill){g.beginPath();for(let k=0;k<10;k++){const rr=k%2?R*.45:R,a=-Math.PI/2+k*Math.PI/5;g.lineTo(x+rr*Math.cos(a),y+rr*Math.sin(a))}g.closePath();g.fillStyle=fill;g.fill()}
+function drawBoard(){
+  g.fillStyle='#fffaf2';g.fillRect(0,0,N,N);
+  for(const k in YARD){const[r0,c0]=YARD[k];
+    g.fillStyle=COL[k];g.fillRect(c0*s,r0*s,6*s,6*s);
+    g.fillStyle='#fffaf2';rr(c0*s+s*.8,r0*s+s*.8,s*4.4,s*4.4,s*.5);g.fill();
+    yardSpots(k).forEach(([x,y])=>{g.beginPath();g.arc(x,y,s*.62,0,7);g.fillStyle=COL[k]+'55';g.fill()});
+  }
+  T.forEach(([r,c],i)=>{const own=Object.keys(OFF).find(k=>OFF[k]===i);cell(r,c,own?COL[own]:'#fffaf2');if(SAFE.includes(i))star((c+.5)*s,(r+.5)*s,s*.32,own?'#fffaf2':'#c9b8a3')});
+  for(const k in HOME)HOME[k].forEach(([r,c])=>cell(r,c,COL[k]));
+  const m=7.5*s,a=6*s,b=9*s;
+  [['green',[a,a],[b,a]],['yellow',[b,a],[b,b]],['blue',[b,b],[a,b]],['red',[a,b],[a,a]]].forEach(([k,p,q])=>{g.beginPath();g.moveTo(...p);g.lineTo(...q);g.lineTo(m,m);g.closePath();g.fillStyle=COL[k];g.fill();g.strokeStyle='#3a2a20';g.stroke()});
+}
+function rr(x,y,w,h,r){g.beginPath();g.roundRect(x,y,w,h,r)}
+const yardSpots=k=>{const[r0,c0]=YARD[k];return[[1.9,1.9],[1.9,4.1],[4.1,1.9],[4.1,4.1]].map(([dr,dc])=>[(c0+dc)*s,(r0+dr)*s])};
+function tokenXY(c,i,p){
+  if(p===-1)return yardSpots(c)[i];
+  if(p===56){const cx=c==='red'?6.55:8.45;return[cx*s,(7.1+(i-1.5)*.38)*s]}
+  const [r,cc]=p<=50?T[absIdx(c,p)]:HOME[c][p-51];return[(cc+.5)*s,(r+.5)*s];
+}
+function render(fromAction){
+  drawBoard();drawn=[];
+  const groups={},t0=performance.now();
+  PLAYERS.forEach(c=>S.tokens[c].forEach((p,i)=>{const [x,y]=tokenXY(c,i,p);const key=p===-1||p===56?c+i+p:x+','+y;(groups[key]=groups[key]||[]).push({c,i,x,y})}));
+  const live=S.rolled&&!S.winner&&mine(S.turn)?movable(S.turn,S.dice):[];
+  Object.values(groups).forEach(gr=>gr.forEach((o,k)=>{
+    const n=gr.length,off=n>1?(k-(n-1)/2)*s*.22:0,x=o.x+off,y=o.y-(n>1?s*.06:0);
+    const R=s*(n>1?.32:.38),hot=o.c===S.turn&&live.includes(o.i);
+    if(hot){g.beginPath();g.arc(x,y,R+s*.14,0,7);g.strokeStyle='#2b1a12';g.lineWidth=4;g.setLineDash([6,5]);g.stroke();g.setLineDash([])}
+    g.beginPath();g.ellipse(x,y+R*.75,R*.9,R*.35,0,0,7);g.fillStyle='#0004';g.fill();
+    g.beginPath();g.arc(x,y,R,0,7);g.fillStyle=DARK[o.c];g.fill();
+    g.beginPath();g.arc(x,y-R*.12,R*.8,0,7);g.fillStyle=COL[o.c];g.fill();
+    g.beginPath();g.arc(x-R*.25,y-R*.4,R*.22,0,7);g.fillStyle='#fff8';g.fill();
+    drawn.push({...o,x,y,R:R+s*.15});
+  }));
+  // UI
+  const c=S.turn;
+  $('dice').innerHTML=pips(S.dice||1);
+  $('dice').disabled=!!S.winner||S.rolled||!mine(c)||(mode==='online'&&!(conn&&conn.open));
+  const who=mode==='local'?`${cap(c)}'s turn`:(c===me?'Your turn':"Friend's turn");
+  $('status').innerHTML=S.winner?`<span class="you" style="background:${COL[S.winner]}"></span>${mode==='local'?cap(S.winner)+' wins!':(S.winner===me?'You win! 🎉':'Your friend wins')}`:`<span class="you" style="background:${COL[c]}"></span>${who}${S.rolled?' — move a token':' — roll the dice'}`;
+  $('sub').textContent=S.msg||(me?`You are ${cap(me)}`:'');
+  if(fromAction!==undefined&&S.ev){SND[S.ev]&&SND[S.ev]();if(S.ev==='roll'){$('dice').classList.remove('spin');void $('dice').offsetWidth;$('dice').classList.add('spin')}}
+}
+const PIP={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
+const pips=v=>`<div class="pips">${[...Array(9)].map((_,k)=>PIP[v].includes(k)?'<i></i>':'<span></span>').join('')}</div>`;
+
+cv.addEventListener('click',e=>{
+  const b=cv.getBoundingClientRect(),x=(e.clientX-b.left)*N/b.width,y=(e.clientY-b.top)*N/b.height;
+  const hit=drawn.filter(o=>o.c===S.turn&&Math.hypot(o.x-x,o.y-y)<o.R).sort((a,b2)=>Math.hypot(a.x-x,a.y-y)-Math.hypot(b2.x-x,b2.y-y));
+  const ok=hit.find(o=>canMove(o.c,o.i,S.dice));if(ok)move(ok.i);
+});
+$('dice').onclick=roll;
+$('newBtn').onclick=()=>{if(mode==='online'&&!(conn&&conn.open))return;S=fresh();S.msg='New game — Red starts';commit()};
+
+/* ---------- media & network ---------- */
+async function getMedia(){
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480},audio:{echoCancellation:true,noiseSuppression:true}});$('local').srcObject=stream}
+  catch(e){$('vidMsg').textContent='Camera/mic not available — the game still works.';stream=null}
+}
+function showRemote(rs){$('remote').srcObject=rs;$('vidMsg').classList.add('hidden')}
+function wire(c){
+  conn=c;
+  c.on('open',()=>{$('lobby').classList.add('hidden');$('roomTag').textContent='Connected';if(me==='red'){S.msg='Friend joined — Red starts';commit()}render()});
+  c.on('data',d=>{if(d&&d.t==='state'&&d.S.seq>=S.seq-1000){S=d.S;render(true)}});
+  c.on('close',()=>{$('roomTag').textContent='Friend disconnected';$('vidMsg').classList.remove('hidden');$('vidMsg').textContent='Your friend left the game';render()});
+}
+const newCode=()=>[...Array(5)].map(()=>'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*31)]).join('');
+const pid=code=>'ludo-wf-2026-'+code.toLowerCase();
+function needPeer(){if(!window.Peer){$('lobbyErr').textContent='Could not load the connection library. Check your internet and reload.';return false}return true}
+
+$('createBtn').onclick=async()=>{
+  if(!needPeer())return;
+  mode='online';me='red';const code=newCode();
+  $('lobbyMain').classList.add('hidden');$('lobbyWait').classList.remove('hidden');$('codeOut').textContent=code;
+  await getMedia();
+  peer=new Peer(pid(code));
+  peer.on('connection',c=>{if(conn&&conn.open){c.close();return}wire(c)});
+  peer.on('call',call=>{call.answer(stream||undefined);call.on('stream',showRemote)});
+  peer.on('error',e=>{$('waitMsg').textContent='Connection error: '+e.type+'. Reload and try again.'});
+  $('roomTag').textContent='Game code '+code+' · You are Red';render();
+};
+$('copyBtn').onclick=()=>{navigator.clipboard?.writeText($('codeOut').textContent).then(()=>$('copyBtn').textContent='Copied!').catch(()=>{})};
+$('joinBtn').onclick=async()=>{
+  const code=$('codeIn').value.trim().toUpperCase();
+  if(code.length!==5){$('lobbyErr').textContent='Enter the 5-letter code from your friend.';return}
+  if(!needPeer())return;
+  mode='online';me='yellow';$('lobbyErr').textContent='Connecting…';
+  await getMedia();
+  peer=new Peer();
+  peer.on('open',()=>{
+    wire(peer.connect(pid(code),{reliable:true}));
+    const call=peer.call(pid(code),stream||new MediaStream());
+    call&&call.on('stream',showRemote);
+    $('roomTag').textContent='Game code '+code+' · You are Yellow';
+  });
+  peer.on('error',e=>{$('lobbyErr').textContent=e.type==='peer-unavailable'?'No game with that code. Check it and try again.':'Connection error: '+e.type});
+};
+$('codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('joinBtn').click()});
+$('localBtn').onclick=()=>{mode='local';$('lobby').classList.add('hidden');$('roomTag').textContent='Practice mode';$('vidMsg').textContent='Video chat works in online games';S.msg='Red starts';render()};
+$('micBtn').onclick=()=>{const a=stream?.getAudioTracks()[0];if(!a)return;a.enabled=!a.enabled;$('micBtn').textContent=a.enabled?'Mute mic':'Unmute mic';$('micBtn').classList.toggle('off',!a.enabled)};
+$('camBtn').onclick=()=>{const v=stream?.getVideoTracks()[0];if(!v)return;v.enabled=!v.enabled;$('camBtn').textContent=v.enabled?'Camera off':'Camera on';$('camBtn').classList.toggle('off',!v.enabled)};
+window.addEventListener('beforeunload',()=>peer&&peer.destroy());
+render();
+}
+</script>
+</body>
+</html>
